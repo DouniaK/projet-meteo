@@ -2,10 +2,27 @@ import { View } from "react-native";
 import { StyleSheet } from "react-native";
 import { Image } from "react-native";
 import { Text } from "react-native-paper";
-export const DetailWeather = ({ label, value, img, unit }) => {
+
+// directionDeg (optionnel) : si fourni, une flèche pivote pour indiquer une
+// direction (utilisé pour la direction du vent). Sinon, l'icône classique
+// (img) est affichée comme avant.
+export const DetailWeather = ({ label, value, img, unit, directionDeg }) => {
   return (
     <View style={styles.container}>
-      <Image source={img} style={styles.infoImage} />
+      {directionDeg !== undefined && directionDeg !== null ? (
+        <View style={styles.arrowWrapper}>
+          <Text
+            style={[
+              styles.arrow,
+              { transform: [{ rotate: `${directionDeg}deg` }] },
+            ]}
+          >
+            ↑
+          </Text>
+        </View>
+      ) : (
+        <Image source={img} style={styles.infoImage} />
+      )}
       <Text style={styles.value}>
         {value} {unit}
       </Text>
@@ -27,6 +44,19 @@ const styles = StyleSheet.create({
     height: 40,
     marginBottom: 10,
     marginTop: 15,
+  },
+  arrowWrapper: {
+    height: 40,
+    width: 40,
+    marginBottom: 10,
+    marginTop: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  arrow: {
+    fontSize: 30,
+    color: "#FFF",
+    fontWeight: "900",
   },
   value: {
     color: "#FFF",

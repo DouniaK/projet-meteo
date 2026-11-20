@@ -1,16 +1,16 @@
-import { View } from "react-native";
+import { View, TouchableOpacity } from "react-native";
 import { StyleSheet } from "react-native";
 import { Image } from "react-native";
 import { Text } from "react-native-paper";
 
-export const FeedbackElement = ({ img, label }) => {
+export const FeedbackElement = ({ img, label, onPress }) => {
   return (
-    <View style={styles.wrapper}>
+    <TouchableOpacity style={styles.wrapper} onPress={onPress}>
       <View style={styles.container}>
         <Image source={img} style={styles.img} />
       </View>
       <Text style={styles.label}>{label}</Text>
-    </View>
+    </TouchableOpacity>
   );
 };
 

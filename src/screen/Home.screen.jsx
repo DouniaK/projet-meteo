@@ -2,11 +2,13 @@ import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { TouchableOpacity } from "react-native";
 import { TextInput } from "react-native-paper";
-import { ImageBackground } from "react-native";
+import { ImageBackground, ScrollView } from "react-native";
 import { Button } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { getAddressesByQuery } from "../../services/address/addressService";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { isLoggedIn, getErrorMessage } from "../../services/api/apiClient";
+import { getFavorites, removeFavorite } from "../../services/api/favoritesService";
+import { getRecentSearches, clearHistory } from "../../services/api/historyService";
 import { useFocusEffect } from "@react-navigation/native";
 
 const HomeScreen = () => {
@@ -15,7 +17,10 @@ const HomeScreen = () => {
   const [addressOptions, setAddressOptions] = useState(null);
   const [visible, setVisible] = useState(false);
   const [selectedAddress, setSelectedAddress] = useState("");
+  const [selectedCoords, setSelectedCoords] = useState(null);
   const [favorites, setFavorites] = useState([]);
+  const [connected, setConnected] = useState(false);
+  const [recent, setRecent] = useState([]);
   const navigation = useNavigation();
 
   useEffect(() => {
@@ -28,16 +33,23 @@ const HomeScreen = () => {
     }
   }, [address]);
 
+  // Les favoris sont lus en base de données (API) à chaque retour sur l'écran.
+  // Sans compte connecté, la liste est vide et on propose de se connecter.
   useFocusEffect(
     React.useCallback(() => {
       const loadFavorites = async () => {
         try {
-          const existingFavorites = await AsyncStorage.getItem("favorites");
-          if (existingFavorites !== null) {
-            setFavorites(JSON.parse(existingFavorites));
+          const logged = await isLoggedIn();
+          setConnected(logged);
+          if (!logged) {
+            setFavorites([]);
+            setRecent([]);
+            return;
           }
+          setFavorites(await getFavorites());
+          setRecent(await getRecentSearches(5));
         } catch (error) {
-          console.error("Error loading favorites", error);
+          console.error("Error loading favorites", getErrorMessage(error));
         }
       };
 
@@ -45,23 +57,62 @@ const HomeScreen = () => {
     }, [])
   );
 
-  const handleSelectAddress = (addressProperties) => {
-    setAddress(addressProperties.label);
-    setSelectedAddress(addressProperties.label);
-    setAddressFormatToCity(addressProperties.city);
+  const handleClearHistory = async () => {
+    try {
+      await clearHistory();
+      setRecent([]);
+    } catch (error) {
+      alert(getErrorMessage(error));
+    }
+  };
+
+  const handleRemoveFavorite = async (fav) => {
+    try {
+      await removeFavorite(fav.id);
+      setFavorites((current) => current.filter((f) => f.id !== fav.id));
+    } catch (error) {
+      alert(getErrorMessage(error));
+    }
+  };
+
+  const handleSelectAddress = (feature) => {
+    const { label, city } = feature.properties;
+    // Les coordonnées précises (lon, lat) sont fournies par l'API
+    // adresse.gouv.fr dans "geometry.coordinates" : on les utilise pour
+    // interroger la météo par position GPS plutôt que par nom de ville,
+    // ce qui évite les erreurs sur les arrondissements, petites communes
+    // ou libellés que l'API météo ne reconnaît pas telle quelle.
+    const [longitude, latitude] = feature.geometry.coordinates;
+    setAddress(label);
+    setSelectedAddress(label);
+    setAddressFormatToCity(city);
+    setSelectedCoords({ latitude, longitude });
     setVisible(false);
   };
 
+  // Retour à la météo de la position GPS (on efface la ville choisie).
   const navigateToWeatherScreenWithGeo = () => {
-    navigation.navigate("Weather");
+    navigation.navigate("Weather", {
+      paramKey: undefined,
+      latitude: undefined,
+      longitude: undefined,
+    });
   };
 
   const navigateToWeatherScreen = () => {
-    navigation.navigate("Weather", { paramKey: addressFormatToCity });
+    navigation.navigate("Weather", {
+      paramKey: addressFormatToCity,
+      latitude: selectedCoords?.latitude,
+      longitude: selectedCoords?.longitude,
+    });
   };
 
   const navigateToWeatherScreenWithFav = (fav) => {
-    navigation.navigate("Weather", { paramKey: fav });
+    navigation.navigate("Weather", {
+      paramKey: fav,
+      latitude: undefined,
+      longitude: undefined,
+    });
   };
 
   return (
@@ -70,17 +121,18 @@ const HomeScreen = () => {
       resizeMode="cover"
       style={styles.image}
     >
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.container}>
+        <Text style={styles.pageTitle}>Rechercher</Text>
         <Button
-          title="View Weather"
           onPress={navigateToWeatherScreenWithGeo}
-          mode="contained"
+          mode="outlined"
+          textColor="#FFF"
+          icon="crosshairs-gps"
         >
-          Geolocalisation
+          Météo de ma position
         </Button>
-        <Text style={styles.title}>Search for city</Text>
         <TextInput
-          label="Address"
+          label="Adresse"
           mode="flat"
           value={address}
           onChangeText={(text) => {
@@ -95,7 +147,7 @@ const HomeScreen = () => {
               <TouchableOpacity
                 key={index}
                 style={styles.option}
-                onPress={() => handleSelectAddress(option.properties)}
+                onPress={() => handleSelectAddress(option)}
               >
                 <Text style={styles.optionText}>{option.properties.label}</Text>
               </TouchableOpacity>
@@ -104,41 +156,82 @@ const HomeScreen = () => {
         )}
         {selectedAddress !== "" && (
           <Button
-            title="View Weather"
             onPress={navigateToWeatherScreen}
             mode="contained"
             style={styles.weatherBtn}
           >
-            View Weather
+            Voir la météo
           </Button>
         )}
-        {favorites.map((fav, index) => (
-          <TouchableOpacity
-            key={`fav-${index}-${fav}`}
-            onPress={() => navigateToWeatherScreenWithFav(fav)}
+        {!connected && (
+          <Button
+            mode="outlined"
+            textColor="#FFF"
+            style={styles.weatherBtn}
+            onPress={() => navigation.navigate("Auth")}
           >
-            <View style={styles.fav}>
-              <Text style={styles.favLabel}>{fav}</Text>
-            </View>
-          </TouchableOpacity>
+            Se connecter pour retrouver mes favoris
+          </Button>
+        )}
+        {favorites.length > 0 && (
+          <Text style={styles.sectionTitle}>Mes favoris</Text>
+        )}
+        {favorites.map((fav) => (
+          <View key={`fav-${fav.id}`} style={styles.favRow}>
+            <TouchableOpacity
+              style={styles.favTouchable}
+              onPress={() => navigateToWeatherScreenWithFav(fav.label)}
+            >
+              <View style={styles.fav}>
+                <Text style={styles.favLabel}>{fav.label}</Text>
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleRemoveFavorite(fav)}>
+              <Text style={styles.favRemove}>✕</Text>
+            </TouchableOpacity>
+          </View>
         ))}
-      </View>
+        {recent.length > 0 && (
+          <View>
+            <Text style={styles.sectionTitle}>Recherches récentes</Text>
+            {recent.map((item) => (
+              <TouchableOpacity
+                key={`recent-${item.city}`}
+                onPress={() => navigateToWeatherScreenWithFav(item.city)}
+              >
+                <View style={styles.fav}>
+                  <Text style={styles.favLabel}>{item.city}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+            <Button textColor="#FFF" onPress={handleClearHistory}>
+              Effacer l'historique
+            </Button>
+          </View>
+        )}
+      </ScrollView>
     </ImageBackground>
   );
 };
 
 const styles = StyleSheet.create({
+  appbar: {
+    backgroundColor: "transparent",
+    elevation: 0,
+  },
   container: {
-    margin: 0,
-    flex: 1,
-    padding: 30,
+    paddingTop: 55,
+    paddingHorizontal: 30,
+    paddingBottom: 40,
+  },
+  pageTitle: {
+    color: "#FFF",
+    fontSize: 26,
+    fontWeight: "700",
+    marginBottom: 20,
   },
   image: {
     flex: 1,
-    justifyContent: "center",
-    padding: 30,
-    backgroundColor:
-      "linear-gradient(90deg, rgba(64,31,79,1) 0%, rgba(61,41,115,1) 100%)",
   },
   title: {
     marginTop: 50,
@@ -148,8 +241,7 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
   input: {
-    marginTop: 50,
-    width: 270,
+    marginTop: 20,
   },
   autocompleteContainer: {
     backgroundColor: "rgba(0,0,0,0.2)",
@@ -162,10 +254,30 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   fav: {
-    width: 270,
+    width: 260,
     height: 40,
     backgroundColor: "rgba(1,1,1, 0.2)",
     borderRadius: 10,
+    marginTop: 10,
+  },
+  favRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  favTouchable: {
+    flex: 0,
+  },
+  sectionTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+    marginTop: 20,
+    marginBottom: 4,
+  },
+  favRemove: {
+    color: "#fff",
+    fontSize: 20,
+    marginLeft: 12,
     marginTop: 10,
   },
   favLabel: {

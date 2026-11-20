@@ -1,10 +1,13 @@
 # Application Météo en React Native
 
-Ce projet est réalisé par Dounia KADDOURI en E3, troisième année de développement à l'ESTIAM, dans le cadre d'un projet d'innovation . L'application permet la géolocalisation, l'ajout de villes en favoris et affiche les descriptions des villes avec des informations météorologiques détaillées.
+Ce projet est réalisé par un groupe de quatre étudiants en M1, quatrième année de développement à l'ESTIAM, dans le cadre d'un exercice sur trois jours sous la direction d'Allan Busi. L'application permet la géolocalisation, l'ajout de villes en favoris et affiche les descriptions des villes avec des informations météorologiques détaillées.
 
 ## Membres du Groupe
 
-- Kaddouri Dounia
+- MESSIA DOLIVEUX Lucas
+- Mateo Oudart
+- Kaddouri Chaïma
+- Haroun Erraji
 
 ## Fonctionnalités
 

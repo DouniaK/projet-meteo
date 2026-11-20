@@ -7,16 +7,21 @@ import {
   TouchableOpacity,
   ScrollView,
   ImageBackground,
-  Touchable,
 } from "react-native";
 import * as Location from "expo-location";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { isLoggedIn, getErrorMessage } from "../../services/api/apiClient";
+import { getFavorites, addFavorite } from "../../services/api/favoritesService";
+import { recordSearch } from "../../services/api/historyService";
 import { getWeatherByCoordinates } from "../../services/weather/weatherService";
 import { getWeatherByCity } from "../../services/weather/weatherService";
-import { ActivityIndicator, Button } from "react-native-paper";
+import { ActivityIndicator, Appbar, Button } from "react-native-paper";
 import moment from "moment";
+import "moment/locale/fr";
+moment.locale("fr");
 import { DetailWeather } from "../components/details-weather.component";
 import { useNavigation } from "@react-navigation/native";
+import { setCurrentPlace } from "../state/currentPlace";
 
 const WeatherScreen = (label) => {
   const [location, setLocation] = useState(null);
@@ -26,78 +31,50 @@ const WeatherScreen = (label) => {
   const [lastUpdate, setLastUpdate] = useState(null);
   const navigation = useNavigation();
   const [isInFavorites, setIsInFavorites] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
 
   const toggleUnit = () => {
     setUnit(unit === "metric" ? "imperial" : "metric");
   };
 
   const selectedAddress = label?.route?.params?.paramKey;
+  const paramLatitude = label?.route?.params?.latitude;
+  const paramLongitude = label?.route?.params?.longitude;
 
-  const getWeatherImage = (weatherDescription) => {
+  // On mappe désormais sur le code icône renvoyé par l'API (ex: "04d",
+  // "10n"...) plutôt que sur le texte de description : ce code ne change
+  // jamais selon la langue, contrairement à la description ("overcast
+  // clouds" / "nuageux"), ce qui rend l'affichage de l'icône fiable même
+  // maintenant que l'API répond en français (lang=fr).
+  const getWeatherImage = (iconCode) => {
+    if (!iconCode) return null;
+    const baseCode = iconCode.slice(0, 2); // "04d" -> "04"
     const iconMapping = {
-      "clear sky": require("../assets/01d.png"),
-      "few clouds": require("../assets/02d.png"),
-      "scattered clouds": require("../assets/03d.png"),
-      "broken clouds": require("../assets/04d.png"),
-      "overcast clouds": require("../assets/04d.png"),
-      "shower rain": require("../assets/09d.png"),
-      "light intensity drizzle": require("../assets/09d.png"),
-      drizzle: require("../assets/09d.png"),
-      "heavy intensity drizzle": require("../assets/09d.png"),
-      "light intensity drizzle rain": require("../assets/09d.png"),
-      "drizzle rain": require("../assets/09d.png"),
-      "heavy intensity drizzle rain": require("../assets/09d.png"),
-      "shower rain and drizzle": require("../assets/09d.png"),
-      "heavy shower rain and drizzle": require("../assets/09d.png"),
-      "shower drizzle": require("../assets/09d.png"),
-      "light intensity shower rain": require("../assets/09d.png"),
-      "heavy intensity shower rain": require("../assets/09d.png"),
-      "ragged shower rain": require("../assets/09d.png"),
-      rain: require("../assets/10d.png"),
-      "light rain": require("../assets/10d.png"),
-      "moderate rain": require("../assets/10d.png"),
-      "heavy intensity rain": require("../assets/10d.png"),
-      "very heavy rain": require("../assets/10d.png"),
-      "extreme rain": require("../assets/10d.png"),
-      thunderstorm: require("../assets/11d.png"),
-      "thunderstorm with light rain": require("../assets/11d.png"),
-      "thunderstorm with rain": require("../assets/11d.png"),
-      "thunderstorm with heavy rain": require("../assets/11d.png"),
-      "light thunderstorm": require("../assets/11d.png"),
-      "heavy thunderstorm": require("../assets/11d.png"),
-      "ragged thunderstorm": require("../assets/11d.png"),
-      "thunderstorm with light drizzle": require("../assets/11d.png"),
-      "thunderstorm with drizzle": require("../assets/11d.png"),
-      "thunderstorm with heavy drizzle": require("../assets/11d.png"),
-      snow: require("../assets/13d.png"),
-      "freezing rain": require("../assets/13d.png"),
-      "light snow": require("../assets/13d.png"),
-      "heavy snow": require("../assets/13d.png"),
-      sleet: require("../assets/13d.png"),
-      "light shower sleet": require("../assets/13d.png"),
-      "shower sleet": require("../assets/13d.png"),
-      "light rain and snow": require("../assets/13d.png"),
-      "rain and snow": require("../assets/13d.png"),
-      "light shower snow": require("../assets/13d.png"),
-      "shower snow": require("../assets/13d.png"),
-      "heavy shower snow": require("../assets/13d.png"),
-      mist: require("../assets/50d.png"),
-      smoke: require("../assets/50d.png"),
-      haze: require("../assets/50d.png"),
-      "sand/dust whirls": require("../assets/50d.png"),
-      fog: require("../assets/50d.png"),
-      sand: require("../assets/50d.png"),
-      dust: require("../assets/50d.png"),
-      "volcanic ash": require("../assets/50d.png"),
-      squalls: require("../assets/50d.png"),
-      tornado: require("../assets/50d.png"),
+      "01": require("../assets/01d.png"),
+      "02": require("../assets/02d.png"),
+      "03": require("../assets/03d.png"),
+      "04": require("../assets/04d.png"),
+      "09": require("../assets/09d.png"),
+      "10": require("../assets/10d.png"),
+      "11": require("../assets/11d.png"),
+      "13": require("../assets/13d.png"),
+      "50": require("../assets/50d.png"),
     };
 
-    return iconMapping[weatherDescription.toLowerCase()] || null;
+    return iconMapping[baseCode] || require("../assets/04d.png");
   };
 
   const shouldFetchData = () =>
     !lastUpdate || new Date().getTime() - lastUpdate > 30 * 60 * 1000;
+
+  // Convertit un angle en degrés (0-360, fourni par l'API OpenWeatherMap
+  // dans wind.deg) en direction cardinale lisible (français).
+  const getCardinalDirection = (deg) => {
+    if (deg === undefined || deg === null) return "";
+    const directions = ["N", "NE", "E", "SE", "S", "SO", "O", "NO"];
+    const index = Math.round(deg / 45) % 8;
+    return directions[index];
+  };
 
   const getLocation = async () => {
     try {
@@ -120,6 +97,7 @@ const WeatherScreen = (label) => {
   const getWeatherData = async () => {
     try {
       if (location && shouldFetchData) {
+        setErrorMessage(null);
         const { latitude, longitude } = location;
         const weatherData = await getWeatherByCoordinates(
           latitude,
@@ -128,6 +106,7 @@ const WeatherScreen = (label) => {
         );
 
         setWeather(weatherData);
+        setCurrentPlace(weatherData);
         setLoading(false);
 
         const updatedLastUpdate = new Date().getTime();
@@ -139,18 +118,38 @@ const WeatherScreen = (label) => {
       }
     } catch (error) {
       console.error(error);
+      setLoading(false);
+      setErrorMessage(
+        "Impossible de récupérer la météo de votre position. Vérifiez votre connexion et réessayez."
+      );
     }
   };
 
   const getWeatherDataFromAddress = async () => {
     if (selectedAddress !== undefined) {
+      setLoading(true);
+      setErrorMessage(null);
       try {
-        const weatherData = await getWeatherByCity(selectedAddress, unit);
+        // On privilégie les coordonnées GPS de l'adresse (bien plus
+        // fiables) quand elles sont disponibles ; sinon, on retombe sur
+        // une recherche par nom de ville (cas des favoris déjà enregistrés
+        // avant l'ajout des coordonnées).
+        const weatherData =
+          paramLatitude !== undefined && paramLongitude !== undefined
+            ? await getWeatherByCoordinates(paramLatitude, paramLongitude, unit)
+            : await getWeatherByCity(selectedAddress, unit);
 
         setWeather(weatherData);
+        setCurrentPlace(weatherData);
         setLoading(false);
+        // Mémorise la ville consultée dans l'historique (MongoDB), sans attendre.
+        recordSearch(selectedAddress);
       } catch (err) {
         console.error(err);
+        setLoading(false);
+        setErrorMessage(
+          `Météo introuvable pour « ${selectedAddress} ». Essayez une autre adresse.`
+        );
       }
     }
   };
@@ -169,39 +168,63 @@ const WeatherScreen = (label) => {
     }
   };
 
+  // Enregistre la ville en favori dans la base de données (via l'API).
+  // Il faut être connecté : sinon on redirige vers l'écran de connexion.
   const saveToFavorites = async () => {
+    if (!(await isLoggedIn())) {
+      navigation.navigate("Auth");
+      return;
+    }
     try {
-      const existingFavorites = await AsyncStorage.getItem("favorites");
-      let newFavorites = [];
-      if (existingFavorites) {
-        newFavorites = [...JSON.parse(existingFavorites), selectedAddress];
-      } else {
-        newFavorites = [selectedAddress];
-      }
-      await AsyncStorage.setItem("favorites", JSON.stringify(newFavorites));
-      alert("Addresse sauvegarder dans vos favoris !");
+      await addFavorite(selectedAddress);
+      setIsInFavorites(true);
+      alert("Adresse enregistrée dans vos favoris !");
     } catch (error) {
-      console.error("Error saving to favorites", error);
+      if (error.response?.status === 409) {
+        // Règle garantie par la base : un même favori ne peut exister 2 fois.
+        setIsInFavorites(true);
+        alert("Cette adresse est déjà dans vos favoris !");
+      } else if (error.response?.status === 401) {
+        navigation.navigate("Auth"); // jeton expiré
+      } else {
+        alert(getErrorMessage(error));
+      }
     }
   };
-  const alreadyInFav = async (address) => {
-    try {
-      const existingFavoritesJson = await AsyncStorage.getItem("favorites");
-      const existingFavorites = existingFavoritesJson
-        ? JSON.parse(existingFavoritesJson)
-        : [];
 
-      return existingFavorites.some((favAddress) => favAddress === address);
+  const alreadyInFav = async (address) => {
+    if (!address || !(await isLoggedIn())) {
+      return false;
+    }
+    try {
+      const favorites = await getFavorites();
+      return favorites.some((fav) => fav.label === address);
     } catch (error) {
-      console.error("Error checking favorites", error);
+      console.error("Error checking favorites", getErrorMessage(error));
       return false;
     }
   };
 
-  alreadyInFav(selectedAddress);
-
   const navigateToFeedback = () => {
-    navigation.navigate("Feedback");
+    // La ville est transmise pour savoir à quelle ville se rapporte le retour.
+    navigation.navigate("Feedback", {
+      city: weather?.name ?? selectedAddress,
+    });
+  };
+
+  // Revenir à la météo de sa position GPS après avoir consulté une ville.
+  const backToMyPosition = () => {
+    navigation.setParams({
+      paramKey: undefined,
+      latitude: undefined,
+      longitude: undefined,
+    });
+  };
+
+  // Ouvre l'onglet Carte : il se centre sur le lieu affiché ici
+  // (voir src/state/currentPlace.js).
+  const navigateToMap = () => {
+    navigation.navigate("Map");
   };
 
   useEffect(() => {
@@ -238,21 +261,58 @@ const WeatherScreen = (label) => {
       source={require("../assets/Background.png")}
       style={styles.container}
     >
+      <View style={styles.topBar}>
+        <View style={styles.brand}>
+          <Image
+            source={require("../../assets/logo.png")}
+            style={styles.logo}
+            accessibilityLabel="Logo MeteoAPP"
+          />
+          <Text style={styles.appTitle}>MeteoAPP</Text>
+        </View>
+        {selectedAddress !== undefined && (
+          <Button
+            mode="text"
+            compact
+            textColor="#FFF"
+            icon="crosshairs-gps"
+            onPress={backToMyPosition}
+          >
+            Ma position
+          </Button>
+        )}
+      </View>
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.city}>{weather?.name}</Text>
         {loading ? (
           <ActivityIndicator animating={true} color={"#FFF"} />
+        ) : errorMessage ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{errorMessage}</Text>
+            <Button
+              mode="contained"
+              style={{ marginTop: 16 }}
+              onPress={() => {
+                setLoading(true);
+                if (selectedAddress !== undefined) {
+                  getWeatherDataFromAddress();
+                } else {
+                  getWeatherData();
+                }
+              }}
+            >
+              Réessayer
+            </Button>
+          </View>
         ) : (
           <View style={styles.weatherContainer}>
             <Text style={styles.weather}>
               {weather?.weather?.[0]?.description}
             </Text>
-            <TouchableOpacity onPress={navigateToFeedback}>
-              <Image
-                source={getWeatherImage(weather?.weather?.[0]?.description)}
-                style={styles.weatherImage}
-              />
-            </TouchableOpacity>
+            <Image
+              source={getWeatherImage(weather?.weather?.[0]?.icon)}
+              style={styles.weatherImage}
+            />
             <TouchableOpacity onPress={toggleUnit}>
               <Text style={styles.temperature}>
                 {weather?.main?.temp} °{unit === "metric" ? "C" : "F"}
@@ -276,18 +336,42 @@ const WeatherScreen = (label) => {
               />
               <DetailWeather
                 img={require("../assets/vent.png")}
-                label={"Vitesse du vent"}
+                label={`Vent ${getCardinalDirection(weather?.wind?.deg)}`}
                 value={weather?.wind?.speed}
                 unit={"m/s"}
+                directionDeg={weather?.wind?.deg}
               />
             </View>
-            {selectedAddress !== undefined && !isInFavorites && (
-              <TouchableOpacity onPress={saveToFavorites}>
-                <Button mode="contained" style={{ marginTop: 40 }}>
-                  Save to Favorites
+            <View style={styles.actions}>
+              {selectedAddress !== undefined && !isInFavorites && (
+                <Button
+                  mode="contained"
+                  icon="star-outline"
+                  onPress={saveToFavorites}
+                  style={styles.actionButton}
+                >
+                  Ajouter aux favoris
                 </Button>
-              </TouchableOpacity>
-            )}
+              )}
+              <Button
+                mode="outlined"
+                textColor="#FFF"
+                icon="map-outline"
+                onPress={navigateToMap}
+                style={styles.actionButton}
+              >
+                Voir sur la carte
+              </Button>
+              <Button
+                mode="outlined"
+                textColor="#FFF"
+                icon="message-text-outline"
+                onPress={navigateToFeedback}
+                style={styles.actionButton}
+              >
+                Donner mon avis
+              </Button>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -296,6 +380,37 @@ const WeatherScreen = (label) => {
 };
 
 const styles = StyleSheet.create({
+  topBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 55,
+    paddingHorizontal: 20,
+    paddingBottom: 4,
+  },
+  brand: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  logo: {
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+    marginRight: 10,
+  },
+  appTitle: {
+    color: "#FFF",
+    fontSize: 20,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+  },
+  actions: {
+    marginTop: 24,
+    width: 260,
+  },
+  actionButton: {
+    marginTop: 10,
+  },
   container: {
     flexGrow: 1,
     justifyContent: "center",
@@ -341,6 +456,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: 20,
     paddingHorizontal: 20,
+  },
+  errorContainer: {
+    alignItems: "center",
+    paddingHorizontal: 30,
+    marginTop: 20,
+  },
+  errorText: {
+    color: "#FFF",
+    fontSize: 15,
+    textAlign: "center",
   },
 });
 

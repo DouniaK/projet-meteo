@@ -3,46 +3,81 @@ import { Text } from "react-native-paper";
 import { ImageBackground } from "react-native";
 import { StyleSheet } from "react-native";
 import { FeedbackElement } from "../components/feedback-element.component";
+import { isLoggedIn, getErrorMessage } from "../../services/api/apiClient";
+import { sendFeedback } from "../../services/api/feedbackService";
 
-export const FeedBack = () => {
+export const FeedBack = ({ route, navigation }) => {
+  const city = route?.params?.city;
+
   const feedBackElements = [
     {
-      label: "Suuny",
+      label: "Ensoleillé",
+      code: "01d",
       img: require("../assets/01d.png"),
     },
     {
-      label: "Few Clouds",
+      label: "Quelques nuages",
+      code: "02d",
       img: require("../assets/02d.png"),
     },
     {
-      label: "Scattered Clouds",
+      label: "Nuages épars",
+      code: "03d",
       img: require("../assets/03d.png"),
     },
     {
-      label: "Broken Clouds",
+      label: "Nuages fragmentés",
+      code: "04d",
       img: require("../assets/04d.png"),
     },
     {
-      label: "Drizzle Rain",
+      label: "Bruine",
+      code: "09d",
       img: require("../assets/09d.png"),
     },
     {
-      label: "Light Intensity Drizzle",
+      label: "Pluie légère",
+      code: "10d",
       img: require("../assets/10d.png"),
     },
     {
-      label: "Thunderstorm",
+      label: "Orage",
+      code: "11d",
       img: require("../assets/11d.png"),
     },
     {
-      label: "Snow",
+      label: "Neige",
+      code: "13d",
       img: require("../assets/13d.png"),
     },
     {
-      label: "Mist / Smoke",
+      label: "Brume / Fumée",
+      code: "50d",
       img: require("../assets/50d.png"),
     },
   ];
+
+  // Un appui = « voici la météo que j'observe dans cette ville ».
+  const handleFeedback = async (element) => {
+    if (!(await isLoggedIn())) {
+      navigation.navigate("Tabs", { screen: "Auth" });
+      return;
+    }
+    if (!city) {
+      alert("Ville inconnue : ouvrez cet écran depuis la météo d'une ville.");
+      return;
+    }
+    try {
+      await sendFeedback(city, element.code);
+      alert("Merci pour votre retour !");
+    } catch (error) {
+      if (error.response?.status === 401) {
+        navigation.navigate("Tabs", { screen: "Auth" });
+      } else {
+        alert(getErrorMessage(error));
+      }
+    }
+  };
 
   return (
     <ImageBackground
@@ -51,13 +86,14 @@ export const FeedBack = () => {
     >
       <View>
         <Text style={styles.title}>
-          Your feedback can help everyone see more accurate weather conditions!
+          Votre retour aide chacun à voir des conditions météo plus précises !
         </Text>
         <View style={styles.elementContainer}>
           {feedBackElements.map((element) => (
             <FeedbackElement
               img={element.img}
               label={element.label}
+              onPress={() => handleFeedback(element)}
               key={element.label}
             />
           ))}

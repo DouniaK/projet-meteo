@@ -1,27 +1,29 @@
 {
   "expo": {
-    "name": "axios",
-    "slug": "axios",
+    "name": "MeteoAPP",
+    "slug": "meteoapp",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#0A3A38"
     },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.douniak.meteoapp"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
-      }
+        "backgroundColor": "#2FB6A3"
+      },
+      "package": "com.douniak.meteoapp"
     },
     "web": {
       "favicon": "./assets/favicon.png"

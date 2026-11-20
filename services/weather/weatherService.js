@@ -12,6 +12,7 @@ const getWeatherByCity = async (city, metric) => {
       params: {
         q: city,
         units: metric,
+        lang: "fr",
         appid: API_KEY,
       },
     });
@@ -35,6 +36,7 @@ const getWeatherByCoordinates = async (latitude, longitude, metric) => {
         lat: latitude,
         lon: longitude,
         units: metric,
+        lang: "fr",
         appid: API_KEY,
       },
     });
@@ -48,4 +50,34 @@ const getWeatherByCoordinates = async (latitude, longitude, metric) => {
   }
 };
 
-export { getWeatherByCity, getWeatherByCoordinates };
+/**
+ * Recherche une ville n'importe où dans le monde (pas seulement en France,
+ * contrairement à l'API adresse.gouv.fr utilisée sur l'écran d'accueil) et
+ * retourne ses coordonnées GPS. Utilisé par la carte météo pour permettre
+ * de consulter une autre ville, y compris à l'étranger.
+ * @param {string} city Nom de la ville recherchée
+ * @returns {Promise<{name: string, lat: number, lon: number, country: string}>}
+ */
+const getCoordinatesByCityName = async (city) => {
+  try {
+    const response = await axios.get(
+      "https://api.openweathermap.org/geo/1.0/direct",
+      {
+        params: { q: city, limit: 1, appid: API_KEY },
+      }
+    );
+    if (!response.data || response.data.length === 0) {
+      throw new Error("Ville introuvable");
+    }
+    return response.data[0];
+  } catch (error) {
+    console.error("Erreur lors du géocodage de la ville :", error);
+    throw error;
+  }
+};
+
+export {
+  getWeatherByCity,
+  getWeatherByCoordinates,
+  getCoordinatesByCityName,
+};
